@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doors Tracker - Admin Portal</title>
+    <style>
+        * { box-sizing: border-box; transition: background-color 0.2s, border-color 0.2s; }
+        body {
+            background-color: #050505;
+            color: #ffffff;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .dashboard-container {
+            background: #0d0d0d;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 28px;
+            width: 100%;
+            max-width: 600px;
+            padding: 40px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8);
+            text-align: center;
+        }
+        h1 { font-size: 28px; font-weight: 700; margin: 0 0 10px 0; letter-spacing: -0.5px; }
+        .subtitle { color: #555; font-size: 12px; margin-bottom: 30px; text-transform: uppercase; letter-spacing: 1.5px; }
+        
+        .view-panel { display: none; flex-direction: column; }
+        .active-panel { display: flex; animation: panelFade 0.3s ease forwards; }
+        @keyframes panelFade {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .input-glow {
+            background: #141414; border: 1px solid rgba(255, 255, 255, 0.06); padding: 14px 20px;
+            border-radius: 14px; color: white; width: 100%; font-size: 14px; margin-bottom: 15px; 
+            outline: none; text-align: left; transition: all 0.25s ease;
+        }
+        .input-glow:focus { border-color: rgba(255,255,255,0.2); background: #1a1a1a; }
+        
+        select.input-glow { cursor: pointer; appearance: none; }
+
+        .btn-action {
+            background: #ffffff; color: #000000; border: none; padding: 14px 40px; border-radius: 14px;
+            font-weight: 600; cursor: pointer; width: 100%; font-size: 14px; margin-top: 10px;
+            transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        .btn-action:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255,255,255,0.15); }
+        
+        .category-heading {
+            text-align: left; font-size: 12px; font-weight: 800; letter-spacing: 2px;
+            text-transform: uppercase; color: #555; margin: 25px 0 15px 0;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .category-heading::after { content: ''; flex-grow: 1; height: 1px; background: rgba(255,255,255,0.03); }
+
+        .id-list-container { max-height: 200px; overflow-y: auto; text-align: left; padding-right: 5px; }
+        .id-list-container::-webkit-scrollbar { width: 4px; }
+        .id-list-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+        .id-item {
+            display: flex; justify-content: space-between; align-items: center;
+            background: #121212; padding: 10px 15px; border-radius: 10px; margin-bottom: 8px;
+            border: 1px solid rgba(255,255,255,0.02); font-size: 13px; font-family: monospace;
+        }
+        .btn-delete {
+            background: none; border: none; color: #ff4444; font-weight: bold; cursor: pointer;
+            padding: 4px 8px; border-radius: 6px; font-size: 11px; text-transform: uppercase;
+        }
+        .btn-delete:hover { background: rgba(255, 68, 68, 0.1); }
+
+        .custom-alert {
+            position: fixed; bottom: -100px; left: 50%; transform: translateX(-50%);
+            background: #b30000; color: white; padding: 16px 30px; border-radius: 12px;
+            font-weight: 600; font-size: 14px; box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            z-index: 1000; transition: bottom 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .custom-alert.alert-show { bottom: 30px; }
+        .custom-alert.alert-success { background: #1b4332; border: 1px solid #75e0a4; color: #75e0a4; }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <h1>Admin Control Panel</h1>
+        <div class="subtitle" id="portalSub">Secure Database Access</div>
+
+        <div id="panelLogin" class="view-panel active-panel">
+            <form id="loginForm">
+                <input type="text" id="usernameInput" class="input-glow" placeholder="Admin Username" required>
+                <input type="password" id="passwordInput" class="input-glow" placeholder="Secure Password" required>
+                <button type="submit" class="btn-action">AUTHENTICATE</button>
+            </form>
+        </div>
+
+        <div id="panelDashboard" class="view-panel">
+            <form id="addGameForm" style="text-align: left;">
+                <label style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:1px; display:block; margin-bottom:5px;">Roblox Place ID</label>
+                <input type="text" id="gameIdInput" class="input-glow" placeholder="e.g. 6516141723" required>
+                
+                <label style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:1px; display:block; margin-bottom:5px;">Initial Tracker Category</label>
+                <select id="categorySelect" class="input-glow">
+                    <option value="popular">Standard / Popular Tiers</option>
+                    <option value="butBad">But Bad Edition</option>
+                </select>
+                
+                <button type="submit" class="btn-action">INJECT INTO DATABASE</button>
+            </form>
+
+            <div class="category-heading">Currently Tracked Live IDs</div>
+            <div class="id-list-container" id="liveIdContainer">
+                </div>
+        </div>
+    </div>
+
+    <div class="custom-alert" id="customAlert">Alert Message</div>
+
+    <script>
+        let adminToken = null;
+
+        function showAlert(message, isSuccess = false) {
+            const alertBox = document.getElementById('customAlert');
+            alertBox.innerText = message;
+            if (isSuccess) alertBox.classList.add('alert-success');
+            else alertBox.classList.remove('alert-success');
+            alertBox.classList.add('alert-show');
+            setTimeout(() => { alertBox.classList.remove('alert-show'); }, 4000);
+        }
+
+        // Handle Login Submission
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('usernameInput').value;
+            const password = document.getElementById('passwordInput').value;
+
+            try {
+                const res = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+
+                if (res.ok && data.token) {
+                    adminToken = data.token;
+                    showAlert("Authentication successful!", true);
+                    document.getElementById('panelLogin').classList.remove('active-panel');
+                    document.getElementById('panelDashboard').classList.add('active-panel');
+                    document.getElementById('portalSub').innerText = `Logged in as: ${username}`;
+                    loadCurrentTrackedIds();
+                } else {
+                    showAlert(data.error || "Login Failed.");
+                }
+            } catch {
+                showAlert("Error hitting auth engine backend.");
+            }
+        });
+
+        // Load running tracked ID configurations
+        async function loadCurrentTrackedIds() {
+            try {
+                const res = await fetch('/api/admin/list-ids', {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
+                const data = await res.json();
+                
+                const container = document.getElementById('liveIdContainer');
+                container.innerHTML = '';
+
+                if(!res.ok) return;
+
+                // Loop over standard popular lists
+                data.popular.forEach(id => {
+                    container.innerHTML += `
+                        <div class="id-item">
+                            <span>🟢 Standard ID: ${id}</span>
+                            <button class="btn-delete" onclick="deleteGameId(${id})">Delete</button>
+                        </div>
+                    `;
+                });
+
+                // Loop over but bad lists
+                data.butBad.forEach(id => {
+                    container.innerHTML += `
+                        <div class="id-item">
+                            <span>🔴 But Bad ID: ${id}</span>
+                            <button class="btn-delete" onclick="deleteGameId(${id})">Delete</button>
+                        </div>
+                    `;
+                });
+            } catch {
+                showAlert("Error pulling live index list.");
+            }
+        }
+
+        // Injecting new Place IDs
+        document.getElementById('addGameForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const gameId = document.getElementById('gameIdInput').value.trim();
+            const category = document.getElementById('categorySelect').value;
+
+            try {
+                const res = await fetch('/api/admin/add-id', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${adminToken}`
+                    },
+                    body: JSON.stringify({ gameId, category })
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    showAlert("Game ID written successfully to live database arrays!", true);
+                    document.getElementById('gameIdInput').value = '';
+                    loadCurrentTrackedIds();
+                } else {
+                    showAlert(data.error || "Failed insertion.");
+                }
+            } catch {
+                showAlert("Server error during dynamic writing.");
+            }
+        });
+
+        // Delete active tracked configuration
+        async function deleteGameId(id) {
+            if(!confirm(`Are you sure you want to stop tracking Place ID ${id}?`)) return;
+
+            try {
+                const res = await fetch('/api/admin/delete-id', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${adminToken}`
+                    },
+                    body: JSON.stringify({ gameId: id })
+                });
+
+                if (res.ok) {
+                    showAlert("Game ID dropped from active arrays.", true);
+                    loadCurrentTrackedIds();
+                } else {
+                    showAlert("Failed to drop Game ID.");
+                }
+            } catch {
+                showAlert("Communication breakdown during dynamic delete action.");
+            }
+        }
+    </script>
+</body>
+</html>
+
