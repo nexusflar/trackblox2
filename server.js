@@ -4,24 +4,19 @@ const cors = require("cors");
 const path = require("path");
 const crypto = require("crypto");
 
-// Automatically read local configurations from your .env file
 require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Pull the Webhook link dynamically from environment setups
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
-// Hardcoded initial list structures (Memory arrays optimized for serverless instances)
 let TRACKED_PLACE_IDS = [6516141723, 18186775539, 14782959537, 121776770216184, 74410589950588, 139814426336895, 106488404064306, 95959136210771, 112773882744514, 89944607133829, 14232592026, 84323123259073, 87529023558870, 84643998589421];
 let BUT_BAD_PLACE_IDS = [10704934612, 11648546848, 102512968717570, 10966157497];
 
-// Storage tracking for valid active login tokens
 const ACTIVE_TOKENS = new Set();
 
-// Authorization middleware to block unauthorized requests on internal routes
 const requireAdminAuth = (req, res, next) => {
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
@@ -30,25 +25,18 @@ const requireAdminAuth = (req, res, next) => {
 };
 
 // --- FRONTEND ROUTING PATHWAYS ---
-
-// Route to serve your main interface dashboard
 app.get("/", (req, res) => {
     res.sendFile(path.resolve(process.cwd(), "index.html"));
 });
 
-// Route to open the secure administrator portal page
 app.get("/admin-login", (req, res) => {
     res.sendFile(path.resolve(process.cwd(), "admin.html"));
 });
 
-
-// --- ADMIN MANIPULATION PORT ENDPOINTS ---
-
-// Check credentials securely against a list of multiple admin accounts
+// --- ADMIN ENDPOINTS ---
 app.post("/api/admin/login", (req, res) => {
     const { username, password } = req.body;
     
-    // DEBUGGING: Check exactly what the server sees
     console.log("RAW ENV VALUE:", process.env.ADMIN_ACCOUNTS);
 
     let adminAccounts = [];
@@ -57,7 +45,6 @@ app.post("/api/admin/login", (req, res) => {
             adminAccounts = JSON.parse(process.env.ADMIN_ACCOUNTS);
         }
     } catch (err) {
-        // This will tell you exactly why JSON.parse is failing
         return res.status(500).json({ error: `JSON Parse Failed: ${err.message}`, rawReceived: process.env.ADMIN_ACCOUNTS });
     }
 
@@ -73,12 +60,10 @@ app.post("/api/admin/login", (req, res) => {
     res.status(401).json({ error: "Invalid credentials", fallbackActive: adminAccounts.length === 0 });
 });
 
-// Sends current place array data back to the admin control desk
 app.get("/api/admin/list-ids", requireAdminAuth, (req, res) => {
     res.json({ popular: TRACKED_PLACE_IDS, butBad: BUT_BAD_PLACE_IDS });
 });
 
-// Insert new IDs directly into application tracking memory
 app.post("/api/admin/add-id", requireAdminAuth, (req, res) => {
     const { gameId, category } = req.body;
     const numericId = parseInt(gameId, 10);
@@ -92,7 +77,6 @@ app.post("/api/admin/add-id", requireAdminAuth, (req, res) => {
     res.json({ success: true });
 });
 
-// Wipe targeted Place ID targets out of tracking engine memory
 app.post("/api/admin/delete-id", requireAdminAuth, (req, res) => {
     const { gameId } = req.body;
     const numericId = parseInt(gameId, 10);
@@ -101,9 +85,7 @@ app.post("/api/admin/delete-id", requireAdminAuth, (req, res) => {
     res.json({ success: true });
 });
 
-
-// --- ENGINE COMPILATION CORE (ROBLOX FETCHING) ---
-
+// --- ENGINE COMPILATION CORE ---
 app.get("/api/games", async (req, res) => {
     try {
         const allIds = [...TRACKED_PLACE_IDS, ...BUT_BAD_PLACE_IDS];
@@ -117,7 +99,7 @@ app.get("/api/games", async (req, res) => {
                     universeMappings[response.data.universeId] = id;
                     return response.data.universeId;
                 }
-            } catch (err) { /* Silently bypass individual lookup anomalies */ }
+            } catch (err) {}
             return null;
         });
 
@@ -181,31 +163,41 @@ app.get("/api/games", async (req, res) => {
     }
 });
 
-// Outward facing forward integration to push new request IDs to Discord
+// --- REQUEST GAME PIPELINE ---
 app.post("/api/request-game", async (req, res) => {
-    const { gameId } = req.body;
-    if (!gameId) return res.status(400).json({ error: "Game ID required." });
+    let { gameId } = req.body;
+    if (!gameId) return res.status(400).json({ error: "Game ID or URL required." });
+
+    // Extract raw numbers if a player pastes a full Roblox link
+    const urlMatch = gameId.match(/games\/(\d+)/);
+    if (urlMatch) {
+        gameId = urlMatch[1];
+    }
+
     try {
         if (!DISCORD_WEBHOOK_URL) return res.status(500).json({ error: "Webhook transmission line down." });
         
         await axios.post(DISCORD_WEBHOOK_URL, {
             embeds: [{
-                title: "🚪 New Game Request",
-                color: 65280,
-                fields: [{ name: "Game ID", value: gameId.toString() }]
+                title: "🚪 New Game Request Received",
+                color: 5814783,
+                description: `A user has submitted a tracker look-up request.`,
+                fields: [
+                    { name: "Target ID", value: `\`${gameId}\``, inline: true },
+                    { name: "Roblox Link", value: `[Click Here to View](https://www.roblox.com/games/${gameId})`, inline: true }
+                ],
+                timestamp: new Date()
             }]
         });
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: "Failed to pipe data to remote channel." });
+        res.status(500).json({ error: "Failed to pipe data to Discord channel." });
     }
 });
 
-// Fallback configuration enabling errorless native testing offline
 if (process.env.NODE_ENV !== 'production') {
     const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => console.log(`🚀 Server running locally on port ${PORT}`));
+    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 }
 
-// Map the core Express application container setup over to the Vercel builder pipeline
 module.exports = app;
