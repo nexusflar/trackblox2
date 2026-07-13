@@ -225,21 +225,57 @@ app.get("/api/games", async (req, res) => {
     }
 });
 
+// Outward facing forward integration to push new request IDs to Discord
 app.post("/api/request-game", async (req, res) => {
     const { gameId } = req.body;
     if (!gameId) return res.status(400).json({ error: "Game ID required." });
+    
     try {
         if (!DISCORD_WEBHOOK_URL) return res.status(500).json({ error: "Webhook transmission line down." });
         
+        // 1. Fetch live metadata from Roblox API targets to safely match the exact image formatting
+        const universeRes = await axios.get(`https://apis.roblox.com/universes/v1/places/${gameId}/universe`);
+        const universeId = universeRes.data?.universeId;
+        
+        let gameName = "Unknown Game";
+        let gameCreator = "Unknown Creator";
+        let gameIcon = "";
+
+        if (universeId) {
+            const [detailsRes, iconRes] = await Promise.all([
+                axios.get(`https://games.roblox.com/v1/games?universeIds=${universeId}`),
+                axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeId}&returnPolicy=PlaceHolder&size=150x150&format=Png`)
+            ]);
+            
+            if (detailsRes.data?.data?.[0]) {
+                gameName = detailsRes.data.data[0].name;
+                gameCreator = detailsRes.data.data[0].creator?.name || "Unknown Creator";
+            }
+            gameIcon = iconRes.data?.data?.[0]?.imageUrl || "";
+        }
+
+        // 2. Dispatch structured embed architecture matching the visual specs perfectly
         await axios.post(DISCORD_WEBHOOK_URL, {
             embeds: [{
-                title: "🚪 New Game Request",
-                color: 65280,
-                fields: [{ name: "Game ID", value: gameId.toString() }]
+                title: "🚨 New Tracker Database Request",
+                color: 2307921, // Custom dark navy / slate tone hex value conversion
+                fields: [
+                    { name: "Game Title", value: gameName, inline: true },
+                    { name: "Creator", value: gameCreator, inline: true },
+                    { name: "Roblox Place ID", value: `\`${gameId}\``, inline: false },
+                    { name: "Quick Links", value: `[View Experience on Roblox](https://www.roblox.com/games/${gameId})`, inline: false }
+                ],
+                thumbnail: gameIcon ? { url: gameIcon } : null,
+                footer: {
+                    text: "Doors Analytics Submission Pipeline Engine"
+                },
+                timestamp: new Date().toISOString()
             }]
         });
+
         res.json({ success: true });
     } catch (err) {
+        console.error("Webhook Delivery Failure:", err.message);
         res.status(500).json({ error: "Failed to pipe data to remote channel." });
     }
 });
