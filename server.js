@@ -48,22 +48,19 @@ app.get("/admin-login", (req, res) => {
 app.post("/api/admin/login", (req, res) => {
     const { username, password } = req.body;
     
+    // DEBUGGING: Check exactly what the server sees
+    console.log("RAW ENV VALUE:", process.env.ADMIN_ACCOUNTS);
+
     let adminAccounts = [];
     try {
-        // Safe conversion of the environment string into a structural code array
         if (process.env.ADMIN_ACCOUNTS) {
             adminAccounts = JSON.parse(process.env.ADMIN_ACCOUNTS);
         }
     } catch (err) {
-        console.error("System Error reading ADMIN_ACCOUNTS variable layout:", err.message);
+        // This will tell you exactly why JSON.parse is failing
+        return res.status(500).json({ error: `JSON Parse Failed: ${err.message}`, rawReceived: process.env.ADMIN_ACCOUNTS });
     }
 
-    // Fallback account logic if the environment array configuration comes back empty
-    if (!adminAccounts || adminAccounts.length === 0) {
-        adminAccounts = [{ username: "admin", password: "password123" }];
-    }
-
-    // Look for a match across all allowed accounts configured inside your environment
     const matchedAccount = adminAccounts.find(
         account => account.username === username && account.password === password
     );
@@ -73,7 +70,7 @@ app.post("/api/admin/login", (req, res) => {
         ACTIVE_TOKENS.add(secureToken);
         return res.json({ success: true, token: secureToken });
     }
-    res.status(401).json({ error: "Invalid credentials" });
+    res.status(401).json({ error: "Invalid credentials", fallbackActive: adminAccounts.length === 0 });
 });
 
 // Sends current place array data back to the admin control desk
