@@ -3,20 +3,26 @@ const axios = require("axios");
 const cors = require("cors");
 const path = require("path");
 
+// This tells the server to read your .env file
+require("dotenv").config();
+
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-const PORT = 5000;
-const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1525962159622717490/KNNJAIkNStqi_gaC-Hn8fYYm8rULbKvt8l0RhQUE3T7MCqa8lQd70FSrKh34QGsjoXcO"
+// Reads the webhook link directly from your .env file
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
-const TRACKED_PLACE_IDS = [6516141723, 18186775539, 14782959537, 121776770216184, 74410589950588, 139814426336895, 106488404064306, 112773882744514, 14232592026, 84323123259073, 84643998589421];
+// Your hardcoded game tracking lists
+const TRACKED_PLACE_IDS = [6516141723, 18186775539, 14782959537, 121776770216184, 74410589950588, 139814426336895, 106488404064306, 95959136210771, 112773882744514, 89944607133829, 14232592026, 84323123259073, 87529023558870, 84643998589421];
 const BUT_BAD_PLACE_IDS = [10704934612, 11648546848, 102512968717570, 10966157497];
 
+// Route to serve your main user interface dashboard
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
+// Main Public API Engine (Crash-Proofed)
 app.get("/api/games", async (req, res) => {
     try {
         const allIds = [...TRACKED_PLACE_IDS, ...BUT_BAD_PLACE_IDS];
@@ -25,14 +31,12 @@ app.get("/api/games", async (req, res) => {
         const universeMappings = {};
         const placeToUniversePromises = allIds.map(async (id) => {
             try {
-                const res = await axios.get(`https://apis.roblox.com/universes/v1/places/${id}/universe`);
-                if (res.data?.universeId) {
-                    universeMappings[res.data.universeId] = id;
-                    return res.data.universeId;
+                const response = await axios.get(`https://apis.roblox.com/universes/v1/places/${id}/universe`);
+                if (response.data?.universeId) {
+                    universeMappings[response.data.universeId] = id;
+                    return response.data.universeId;
                 }
-            } catch (err) {
-                console.log(`Skipping Place ID ${id} due to lookup error.`);
-            }
+            } catch (err) { /* Ignore single game lookup failures silently */ }
             return null;
         });
 
@@ -42,7 +46,6 @@ app.get("/api/games", async (req, res) => {
         if (!universeIds.length) return res.json([]);
         const universeCsv = universeIds.join(",");
 
-        // Batch execution of endpoints prevents Roblox API rate-limiting completely
         const [statsRes, iconRes, thumbRes, voteRes] = await Promise.allSettled([
             axios.get(`https://games.roblox.com/v1/games?universeIds=${universeCsv}`),
             axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeCsv}&returnPolicy=PlaceHolder&size=512x512&format=Png`),
@@ -77,13 +80,13 @@ app.get("/api/games", async (req, res) => {
             return {
                 id: placeId,
                 universeId: uId,
-                name: stats.name,
-                creator: stats.creator.name,
+                name: stats.name || "Content Deleted",
+                creator: stats.creator?.name || "Unknown/Deleted", // Optional chaining protects against 500 crashes
                 description: stats.description || "No description provided.",
-                activePlayers: stats.playing,
-                visits: stats.visits,
-                upVotes: voteObj.upVotes,
-                downVotes: voteObj.downVotes,
+                activePlayers: stats.playing || 0,
+                visits: stats.visits || 0,
+                upVotes: voteObj.upVotes || 0,
+                downVotes: voteObj.downVotes || 0,
                 icon: matchIcon,
                 thumbnails,
                 history,
@@ -93,15 +96,18 @@ app.get("/api/games", async (req, res) => {
 
         res.json(compiledGames);
     } catch (err) {
-        console.error("Critical Main Engine Breakdown:", err.message);
-        res.status(500).json({ error: "Failed to load games completely." });
+        console.error("Main Engine Failure:", err.message);
+        res.status(500).json({ error: "Failed to process Roblox data." });
     }
 });
 
+// Webhook Request Route
 app.post("/api/request-game", async (req, res) => {
     const { gameId } = req.body;
     if (!gameId) return res.status(400).json({ error: "Game ID required." });
     try {
+        if (!DISCORD_WEBHOOK_URL) return res.status(500).json({ error: "Webhook endpoint unconfigured." });
+        
         await axios.post(DISCORD_WEBHOOK_URL, {
             embeds: [{
                 title: "🚪 New Game Request",
@@ -110,11 +116,11 @@ app.post("/api/request-game", async (req, res) => {
             }]
         });
         res.json({ success: true });
-    } catch {
-        res.status(500).json({ error: "Webhook failed." });
+    } catch (err) {
+        res.status(500).json({ error: "Could not send request alert." });
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-});
+// Export the application engine for Vercel's serverless pipeline
+module.exports = app;
+
