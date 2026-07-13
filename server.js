@@ -33,12 +33,12 @@ const requireAdminAuth = (req, res, next) => {
 
 // Route to serve your main interface dashboard
 app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "index.html"));
+    res.sendFile(path.resolve(process.cwd(), "index.html"));
 });
 
 // Route to open the secure administrator portal page
 app.get("/admin-login", (req, res) => {
-    res.sendFile(path.join(__dirname, "admin.html"));
+    res.sendFile(path.resolve(process.cwd(), "admin.html"));
 });
 
 
