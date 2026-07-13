@@ -44,11 +44,8 @@ app.get("/admin-login", (req, res) => {
 
 // --- ADMIN MANIPULATION PORT ENDPOINTS ---
 
-// Check credentials securely against a list of multiple admin accounts
 app.post("/api/admin/login", (req, res) => {
     const { username, password } = req.body;
-    
-    // DEBUGGING: Check exactly what the server sees
     console.log("RAW ENV VALUE:", process.env.ADMIN_ACCOUNTS);
 
     let adminAccounts = [];
@@ -57,7 +54,6 @@ app.post("/api/admin/login", (req, res) => {
             adminAccounts = JSON.parse(process.env.ADMIN_ACCOUNTS);
         }
     } catch (err) {
-        // This will tell you exactly why JSON.parse is failing
         return res.status(500).json({ error: `JSON Parse Failed: ${err.message}`, rawReceived: process.env.ADMIN_ACCOUNTS });
     }
 
@@ -73,12 +69,10 @@ app.post("/api/admin/login", (req, res) => {
     res.status(401).json({ error: "Invalid credentials", fallbackActive: adminAccounts.length === 0 });
 });
 
-// Sends current place array data back to the admin control desk
 app.get("/api/admin/list-ids", requireAdminAuth, (req, res) => {
     res.json({ popular: TRACKED_PLACE_IDS, butBad: BUT_BAD_PLACE_IDS });
 });
 
-// Insert new IDs directly into application tracking memory
 app.post("/api/admin/add-id", requireAdminAuth, (req, res) => {
     const { gameId, category } = req.body;
     const numericId = parseInt(gameId, 10);
@@ -92,7 +86,6 @@ app.post("/api/admin/add-id", requireAdminAuth, (req, res) => {
     res.json({ success: true });
 });
 
-// Wipe targeted Place ID targets out of tracking engine memory
 app.post("/api/admin/delete-id", requireAdminAuth, (req, res) => {
     const { gameId } = req.body;
     const numericId = parseInt(gameId, 10);
@@ -103,6 +96,57 @@ app.post("/api/admin/delete-id", requireAdminAuth, (req, res) => {
 
 
 // --- ENGINE COMPILATION CORE (ROBLOX FETCHING) ---
+
+// Dynamic lookup & detail evaluation handler endpoint requested by front-end client
+app.get("/api/verify-game", async (req, res) => {
+    const { query } = req.query;
+    if (!query) return res.status(400).json({ error: "Search query required." });
+
+    try {
+        let detectedId = null;
+
+        // Clean out and isolate ID from incoming text, direct numbers or roblox game URLs
+        const match = query.match(/(?:games|experiences)\/(\d+)/i);
+        if (match) {
+            detectedId = parseInt(match[1], 10);
+        } else {
+            const numericFallback = parseInt(query.replace(/\D/g, ""), 10);
+            if (!isNaN(numericFallback)) detectedId = numericFallback;
+        }
+
+        if (!detectedId) {
+            return res.status(400).json({ error: "Could not safely decode a numeric Place ID from input." });
+        }
+
+        // 1. Resolve to Universe ID Container Pipeline
+        const universeRes = await axios.get(`https://apis.roblox.com/universes/v1/places/${detectedId}/universe`);
+        const universeId = universeRes.data?.universeId;
+        if (!universeId) return res.status(404).json({ error: "Experience profile not found on Roblox servers." });
+
+        // 2. Multiget Core Game Statistics Data Profiles
+        const statsRes = await axios.get(`https://games.roblox.com/v1/games?universeIds=${universeId}`);
+        const dataPayload = statsRes.data?.data?.[0];
+        if (!dataPayload) return res.status(404).json({ error: "Game details completely missing." });
+
+        // 3. Resolve Media Asset Display Icons
+        let displayIcon = "";
+        try {
+            const iconRes = await axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeId}&returnPolicy=PlaceHolder&size=512x512&format=Png`);
+            displayIcon = iconRes.data?.data?.[0]?.imageUrl || "";
+        } catch (e) {}
+
+        res.json({
+            id: detectedId,
+            universeId: universeId,
+            name: dataPayload.name || "Unknown Experience",
+            creator: dataPayload.creator?.name || "Unknown Creator",
+            icon: displayIcon
+        });
+
+    } catch (err) {
+        res.status(500).json({ error: "Roblox system lookup engine communication error." });
+    }
+});
 
 app.get("/api/games", async (req, res) => {
     try {
@@ -117,7 +161,7 @@ app.get("/api/games", async (req, res) => {
                     universeMappings[response.data.universeId] = id;
                     return response.data.universeId;
                 }
-            } catch (err) { /* Silently bypass individual lookup anomalies */ }
+            } catch (err) { }
             return null;
         });
 
@@ -181,7 +225,6 @@ app.get("/api/games", async (req, res) => {
     }
 });
 
-// Outward facing forward integration to push new request IDs to Discord
 app.post("/api/request-game", async (req, res) => {
     const { gameId } = req.body;
     if (!gameId) return res.status(400).json({ error: "Game ID required." });
@@ -201,11 +244,9 @@ app.post("/api/request-game", async (req, res) => {
     }
 });
 
-// Fallback configuration enabling errorless native testing offline
 if (process.env.NODE_ENV !== 'production') {
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Server running locally on port ${PORT}`));
 }
 
-// Map the core Express application container setup over to the Vercel builder pipeline
 module.exports = app;
