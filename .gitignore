@@ -1,0 +1,4 @@
+.env
+database.json
+auth.json
+node_modules/
