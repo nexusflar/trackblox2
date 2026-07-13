@@ -48,6 +48,7 @@ app.get("/admin-login", (req, res) => {
 app.post("/api/admin/login", (req, res) => {
     const { username, password } = req.body;
     
+    // DEBUGGING: Check exactly what the server sees
     console.log("RAW ENV VALUE:", process.env.ADMIN_ACCOUNTS);
 
     let adminAccounts = [];
@@ -56,12 +57,8 @@ app.post("/api/admin/login", (req, res) => {
             adminAccounts = JSON.parse(process.env.ADMIN_ACCOUNTS);
         }
     } catch (err) {
+        // This will tell you exactly why JSON.parse is failing
         return res.status(500).json({ error: `JSON Parse Failed: ${err.message}`, rawReceived: process.env.ADMIN_ACCOUNTS });
-    }
-
-    // Default Fallback Accounts if environment config array parses empty
-    if (!adminAccounts || adminAccounts.length === 0) {
-        adminAccounts = [{ username: "admin", password: "password123" }];
     }
 
     const matchedAccount = adminAccounts.find(
@@ -73,225 +70,142 @@ app.post("/api/admin/login", (req, res) => {
         ACTIVE_TOKENS.add(secureToken);
         return res.json({ success: true, token: secureToken });
     }
-    res.status(401).json({ error: "Invalid credentials" });
+    res.status(401).json({ error: "Invalid credentials", fallbackActive: adminAccounts.length === 0 });
 });
 
-
-// --- NEW ADVANCED LOOKUP PIPELINE ---
-app.get("/api/verify-game", async (req, res) => {
-    let { query } = req.query;
-    if (!query) return res.status(400).json({ error: "Search query string required." });
-
-    let placeId = null;
-    query = query.trim();
-
-    // 1. Try to extract standard numeric configurations out of links/strings
-    const urlMatch = query.match(/roblox\.com\/games\/(\d+)/);
-    if (urlMatch) {
-        placeId = parseInt(urlMatch[1], 10);
-    } else if (/^\d+$/.test(query)) {
-        placeId = parseInt(query, 10);
-    }
-
-    // 2. Fallback: Search Roblox list endpoint directly by text keywords
-    if (!placeId) {
-        try {
-            const searchRes = await axios.get(`https://games.roblox.com/v1/games/list?keyword=${encodeURIComponent(query)}&maxRows=1`);
-            if (searchRes.data?.data?.[0]?.placeId) {
-                placeId = searchRes.data.data[0].placeId;
-            }
-        } catch (err) {
-            return res.status(500).json({ error: "Roblox text lookup engine is currently unreachable." });
-        }
-    }
-
-    if (!placeId) return res.status(404).json({ error: "Could not find any matching Roblox game." });
-
-    // 3. Collect asset thumbnails and metadata schemas using Place ID
-    try {
-        const universeRes = await axios.get(`https://apis.roblox.com/universes/v1/places/${placeId}/universe`);
-        const universeId = universeRes.data?.universeId;
-        if (!universeId) return res.status(404).json({ error: "Failed resolving Place ID to a valid Universe ID." });
-
-        const [statsRes, iconRes, thumbRes] = await Promise.allSettled([
-            axios.get(`https://games.roblox.com/v1/games?universeIds=${universeId}`),
-            axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeId}&returnPolicy=PlaceHolder&size=512x512&format=Png`),
-            axios.get(`https://thumbnails.roblox.com/v1/games/multiget/thumbnails?universeIds=${universeId}&countPerUniverse=1&defaults=true&size=768x432&format=Png`)
-        ]);
-
-        const stats = statsRes.status === "fulfilled" ? statsRes.value.data?.data?.[0] : null;
-        const icon = iconRes.status === "fulfilled" ? iconRes.value.data?.data?.[0]?.imageUrl : "";
-        const thumb = thumbRes.status === "fulfilled" ? thumbRes.value.data?.data?.[0]?.thumbnails?.[0]?.imageUrl : "";
-
-        res.json({
-            id: placeId,
-            name: stats?.name || "Unknown Experience",
-            creator: stats?.creator?.name || "Unknown Creator",
-            icon: icon || thumb,
-            thumbnail: thumb || icon
-        });
-    } catch (err) {
-        res.status(500).json({ error: "Failed pulling verified Roblox game metrics." });
-    }
+// Sends current place array data back to the admin control desk
+app.get("/api/admin/list-ids", requireAdminAuth, (req, res) => {
+    res.json({ popular: TRACKED_PLACE_IDS, butBad: BUT_BAD_PLACE_IDS });
 });
 
+// Insert new IDs directly into application tracking memory
+app.post("/api/admin/add-id", requireAdminAuth, (req, res) => {
+    const { gameId, category } = req.body;
+    const numericId = parseInt(gameId, 10);
+    if (isNaN(numericId)) return res.status(400).json({ error: "Invalid ID format" });
 
-// --- STANDARD USER DISCORD WEBHOOK PIPE ---
-app.post("/api/request-game", async (req, res) => {
+    if (category === "butBad") {
+        if (!BUT_BAD_PLACE_IDS.includes(numericId)) BUT_BAD_PLACE_IDS.push(numericId);
+    } else {
+        if (!TRACKED_PLACE_IDS.includes(numericId)) TRACKED_PLACE_IDS.push(numericId);
+    }
+    res.json({ success: true });
+});
+
+// Wipe targeted Place ID targets out of tracking engine memory
+app.post("/api/admin/delete-id", requireAdminAuth, (req, res) => {
     const { gameId } = req.body;
-    if (!gameId) return res.status(400).json({ error: "Missing Target gameId Parameter." });
-
-    if (!DISCORD_WEBHOOK_URL) {
-        console.error("ALERT: Webhook transmission line missing from environment variables.");
-        return res.status(500).json({ error: "Webhook transmission line down." });
-    }
-
-    try {
-        // Fetch fresh details for the webhook report card summary
-        const universeRes = await axios.get(`https://apis.roblox.com/universes/v1/places/${gameId}/universe`);
-        const universeId = universeRes.data?.universeId;
-        
-        let gameName = "Unknown Experience";
-        let gameCreator = "Unknown Creator";
-        let iconUrl = "https://www.roblox.com/images/roblox_red.png";
-
-        if (universeId) {
-            const [statsRes, iconRes] = await Promise.allSettled([
-                axios.get(`https://games.roblox.com/v1/games?universeIds=${universeId}`),
-                axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeId}&returnPolicy=PlaceHolder&size=150x150&format=Png`)
-            ]);
-            if (statsRes.status === "fulfilled") {
-                gameName = statsRes.value.data?.data?.[0]?.name || gameName;
-                gameCreator = statsRes.value.data?.data?.[0]?.creator?.name || gameCreator;
-            }
-            if (iconRes.status === "fulfilled") {
-                iconUrl = iconRes.value.data?.data?.[0]?.imageUrl || iconUrl;
-            }
-        }
-
-        // Construct rich Discord embed message packet structure
-        const embedPayload = {
-            embeds: [{
-                title: "🚨 New Tracker Database Request",
-                color: 16777215, // White accent sidebar line block
-                thumbnail: { url: iconUrl },
-                fields: [
-                    { name: "Game Title", value: `**${gameName}**`, inline: true },
-                    { name: "Creator", value: `${gameCreator}`, inline: true },
-                    { name: "Roblox Place ID", value: `\`${gameId}\``, inline: false },
-                    { name: "Quick Links", value: `[View Experience on Roblox](https://www.roblox.com/games/${gameId})` }
-                ],
-                timestamp: new Date().toISOString(),
-                footer: { text: "Doors Analytics Submission Pipeline Engine" }
-            }]
-        };
-
-        await axios.post(DISCORD_WEBHOOK_URL, embedPayload);
-        res.json({ success: true, message: "Webhook payload transmitted successfully!" });
-    } catch (err) {
-        console.error("Webhook processing failure state:", err.message);
-        res.status(500).json({ error: "Failed to dispatch payload data downstream." });
-    }
+    const numericId = parseInt(gameId, 10);
+    TRACKED_PLACE_IDS = TRACKED_PLACE_IDS.filter(id => id !== numericId);
+    BUT_BAD_PLACE_IDS = BUT_BAD_PLACE_IDS.filter(id => id !== numericId);
+    res.json({ success: true });
 });
 
 
-// --- GLOBAL PRIMARY ANALYTICS COMBINE COMPILATION ENGINE ---
+// --- ENGINE COMPILATION CORE (ROBLOX FETCHING) ---
+
 app.get("/api/games", async (req, res) => {
     try {
-        const allIds = [...new Set([...TRACKED_PLACE_IDS, ...BUT_BAD_PLACE_IDS])];
-        if (allIds.length === 0) return res.json([]);
+        const allIds = [...TRACKED_PLACE_IDS, ...BUT_BAD_PLACE_IDS];
+        if (!allIds.length) return res.json([]);
 
-        // Get Universe mapping allocations
-        const universeMapping = {};
-        const universeIds = [];
-        
-        await Promise.all(allIds.map(async (pid) => {
+        const universeMappings = {};
+        const placeToUniversePromises = allIds.map(async (id) => {
             try {
-                const mapRes = await axios.get(`https://apis.roblox.com/universes/v1/places/${pid}/universe`);
-                if (mapRes.data?.universeId) {
-                    universeMapping[pid] = mapRes.data.universeId;
-                    universeIds.push(mapRes.data.universeId);
+                const response = await axios.get(`https://apis.roblox.com/universes/v1/places/${id}/universe`);
+                if (response.data?.universeId) {
+                    universeMappings[response.data.universeId] = id;
+                    return response.data.universeId;
                 }
-            } catch (e) { }
-        }));
+            } catch (err) { /* Silently bypass individual lookup anomalies */ }
+            return null;
+        });
 
-        if (universeIds.length === 0) return res.json([]);
+        const unresolvedIds = await Promise.all(placeToUniversePromises);
+        const universeIds = unresolvedIds.filter(id => id !== null);
 
-        const uniqueUniverseIds = [...new Set(universeIds)];
+        if (!universeIds.length) return res.json([]);
+        const universeCsv = universeIds.join(",");
 
-        // Run multi-channel promise fetches across metrics systems
-        const [gamesRes, iconsRes, thumbsRes, votesRes] = await Promise.allSettled([
-            axios.get(`https://games.roblox.com/v1/games?universeIds=${uniqueUniverseIds.join(",")}`),
-            axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${uniqueUniverseIds.join(",")}&returnPolicy=PlaceHolder&size=150x150&format=Png`),
-            axios.get(`https://thumbnails.roblox.com/v1/games/multiget/thumbnails?universeIds=${uniqueUniverseIds.join(",")}&countPerUniverse=3&defaults=true&size=768x432&format=Png`),
-            axios.get(`https://games.roblox.com/v1/games/votes?universeIds=${uniqueUniverseIds.join(",")}`)
+        const [statsRes, iconRes, thumbRes, voteRes] = await Promise.allSettled([
+            axios.get(`https://games.roblox.com/v1/games?universeIds=${universeCsv}`),
+            axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeCsv}&returnPolicy=PlaceHolder&size=512x512&format=Png`),
+            axios.get(`https://thumbnails.roblox.com/v1/games/multiget/thumbnails?universeIds=${universeCsv}&countPerUniverse=5&defaults=true&size=768x432&format=Png`),
+            axios.get(`https://games.roblox.com/v1/games/votes?universeIds=${universeCsv}`)
         ]);
 
-        const gamesData = gamesRes.status === "fulfilled" ? gamesRes.value.data?.data || [] : [];
-        const iconsData = iconsRes.status === "fulfilled" ? iconsRes.value.data?.data || [] : [];
-        const thumbsData = thumbsRes.status === "fulfilled" ? thumbsRes.value.data?.data || [] : [];
-        const votesData = votesRes.status === "fulfilled" ? votesRes.value.data?.data || [] : [];
+        const statsData = statsRes.status === "fulfilled" ? statsRes.value.data?.data || [] : [];
+        const iconsData = iconRes.status === "fulfilled" ? iconRes.value.data?.data || [] : [];
+        const thumbsData = thumbRes.status === "fulfilled" ? thumbRes.value.data?.data || [] : [];
+        const votesData = voteRes.status === "fulfilled" ? voteRes.value.data?.data || [] : [];
 
-        // Build key index references for quick access
-        const gamesMap = new Map(gamesData.map(g => [g.id, g]));
-        const iconsMap = new Map(iconsData.map(i => [i.targetId, i.imageUrl]));
-        const thumbsMap = new Map(thumbsData.map(t => [t.universeId, t.thumbnails?.map(img => img.imageUrl) || []]));
-        const votesMap = new Map(votesData.map(v => [v.id, v]));
+        const compiledGames = statsData.map(stats => {
+            const uId = stats.id;
+            const placeId = universeMappings[uId];
+            
+            const matchIcon = iconsData.find(i => i.targetId === uId)?.imageUrl || "";
+            const rawThumbs = thumbsData.find(t => t.universeId === uId)?.thumbnails || [];
+            let thumbnails = rawThumbs.filter(t => t?.state === "Completed" && t.imageUrl).map(t => t.imageUrl);
+            if (!thumbnails.length && matchIcon) thumbnails.push(matchIcon);
 
-        const synthesizedOutputPayload = allIds.map(pid => {
-            const uid = universeMapping[pid];
-            if (!uid) return null;
+            const voteObj = votesData.find(v => v.id === uId) || { upVotes: 0, downVotes: 0 };
+            const history = Array.from({ length: 7 }, () => Math.floor(stats.playing * (0.8 + Math.random() * 0.4)));
 
-            const g = gamesMap.get(uid);
-            const voteObj = votesMap.get(uid);
-
-            if (!g) return null;
-
-            let assignedCategory = "Popular";
-            if (BUT_BAD_PLACE_IDS.includes(pid)) {
-                assignedCategory = "But Bad";
-            } else if (g.playing < 25) {
-                assignedCategory = "Unpopular";
+            let category = "Popular";
+            if (BUT_BAD_PLACE_IDS.includes(placeId)) {
+                category = "But Bad";
+            } else if (stats.visits < 500000 || stats.playing < 10) {
+                category = "Unpopular";
             }
 
-            // Generate synthetic historical node plots for the graph curves
-            const baseVal = g.playing || 0;
-            const mockHistoryCurve = [
-                Math.round(baseVal * 0.85),
-                Math.round(baseVal * 1.1),
-                Math.round(baseVal * 0.95),
-                Math.round(baseVal * 0.7),
-                Math.round(baseVal * 1.05),
-                Math.round(baseVal * 1.2),
-                baseVal
-            ];
-
             return {
-                id: pid,
-                universeId: uid,
-                name: g.name,
-                description: g.description,
-                creator: g.creator?.name || "Unknown Author",
-                activePlayers: g.playing || 0,
-                visits: g.visits || 0,
-                icon: iconsMap.get(uid) || "",
-                thumbnails: thumbsMap.get(uid) || [],
-                upVotes: voteObj?.upVotes || 50,
-                downVotes: voteObj?.downVotes || 0,
-                category: assignedCategory,
-                history: mockHistoryCurve
+                id: placeId,
+                universeId: uId,
+                name: stats.name || "Content Deleted",
+                creator: stats.creator?.name || "Unknown/Deleted",
+                description: stats.description || "No description provided.",
+                activePlayers: stats.playing || 0,
+                visits: stats.visits || 0,
+                upVotes: voteObj.upVotes || 0,
+                downVotes: voteObj.downVotes || 0,
+                icon: matchIcon,
+                thumbnails,
+                history,
+                category
             };
-        }).filter(item => item !== null);
+        });
 
-        res.json(synthesizedOutputPayload);
+        res.json(compiledGames);
     } catch (err) {
-        console.error("Critical core runtime breakdown exception:", err);
-        res.status(500).json({ error: "Global compilation analytics loop failure." });
+        res.status(500).json({ error: "Failed to compile live server metrics." });
     }
 });
 
-// Start the network listening port interface context
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Backend server successfully active on port ${PORT}`));
+// Outward facing forward integration to push new request IDs to Discord
+app.post("/api/request-game", async (req, res) => {
+    const { gameId } = req.body;
+    if (!gameId) return res.status(400).json({ error: "Game ID required." });
+    try {
+        if (!DISCORD_WEBHOOK_URL) return res.status(500).json({ error: "Webhook transmission line down." });
+        
+        await axios.post(DISCORD_WEBHOOK_URL, {
+            embeds: [{
+                title: "🚪 New Game Request",
+                color: 65280,
+                fields: [{ name: "Game ID", value: gameId.toString() }]
+            }]
+        });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to pipe data to remote channel." });
+    }
+});
 
+// Fallback configuration enabling errorless native testing offline
+if (process.env.NODE_ENV !== 'production') {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`🚀 Server running locally on port ${PORT}`));
+}
+
+// Map the core Express application container setup over to the Vercel builder pipeline
 module.exports = app;
