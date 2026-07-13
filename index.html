@@ -73,6 +73,43 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* Container for the logo layout */
+.card-header-layout {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 15px;
+    position: relative;
+}
+
+/* Main list game logo */
+.game-card-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 2;
+    position: relative;
+}
+
+/* Text wrapper to prevent layout shifts */
+.game-card-text {
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+/* Badge decoration positioning rules */
+.deco-badge {
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    width: 66px;
+    height: 66px;
+    pointer-events: none;
+    z-index: 3;
+}
+
         .loading-overlay {
             position: absolute;
             top: 120px; left: 0; right: 0; bottom: 0;
@@ -385,46 +422,67 @@
             }
         }
 
-        async function initOrUpdateDashboard() {
-            try {
-                const res = await fetch('/api/games');
-                const games = await res.json();
-                globalGamesStorage = games;
-                
-                document.getElementById('loadingView').classList.add('hidden');
-                if (isModalCurrentlyActive) return;
+       async function initOrUpdateDashboard() {
+    try {
+        const res = await fetch('/api/games');
+        const games = await res.json();
+        globalGamesStorage = games;
+        
+        document.getElementById('loadingView').classList.add('hidden');
+        if (isModalCurrentlyActive) return;
 
-                const grids = {
-                    "Popular": document.getElementById('gridPopular'),
-                    "Unpopular": document.getElementById('gridUnpopular'),
-                    "But Bad": document.getElementById('gridButBad')
-                };
+        const grids = {
+            "Popular": document.getElementById('gridPopular'),
+            "Unpopular": document.getElementById('gridUnpopular'),
+            "But Bad": document.getElementById('gridButBad')
+        };
 
-                Object.values(grids).forEach(g => g.innerHTML = '');
-                const counts = { "Popular": 0, "Unpopular": 0, "But Bad": 0 };
+        Object.values(grids).forEach(g => g.innerHTML = '');
+        const counts = { "Popular": 0, "Unpopular": 0, "But Bad": 0 };
 
-                games.forEach((game, idx) => {
-                    const targetGrid = grids[game.category] || grids["Popular"];
-                    counts[game.category]++;
+        games.forEach((game, idx) => {
+            const targetGrid = grids[game.category] || grids["Popular"];
+            counts[game.category]++;
+            
+            // Determine badge layout decorators dynamically
+            let decoHtml = '';
+            if (game.category === "Popular") {
+                decoHtml = `<img class="deco-badge" src="https://i.ibb.co/0pRRm2YK/Badge-Outline-Full-1.webp" alt="Popular Deco">`;
+            } else if (game.category === "Unpopular") {
+                decoHtml = `<img class="deco-badge" src="https://i.ibb.co/gZxkK6sY/Badge-Outline-Secret-V2.webp" alt="Unpopular Deco">`;
+            } // 'But Bad' evaluates cleanly with no changes, leaving it empty
+
+            targetGrid.innerHTML += `
+                <div class="game-card" id="card-${game.id}" onclick="openGameModal(${idx})">
+                    <div class="card-blur-bg" style="background-image: url('${game.thumbnails ? game.thumbnails[0] : game.icon}')"></div>
                     
-                    targetGrid.innerHTML += `
-                        <div class="game-card" id="card-${game.id}" onclick="openGameModal(${idx})">
-                            <div class="card-blur-bg" style="background-image: url('${game.thumbnails ? game.thumbnails[0] : game.icon}')"></div>
+                    <div class="card-header-layout">
+                        ${decoHtml}
+                        <img class="game-card-icon" src="${game.icon || 'https://www.roblox.com/images/DropShadowPlayerIcon.png'}" alt="Game Logo">
+                        <div class="game-card-text">
                             <h3 class="game-title">${game.name}</h3>
                             <div class="game-creator">by ${game.creator}</div>
-                            <div class="stat-row"><span class="stat-label">Active Players</span><span class="stat-value active-now" id="active-${game.id}">${Number(game.activePlayers).toLocaleString()}</span></div>
-                            <div class="stat-row"><span class="stat-label">Total Visits</span><span class="stat-value" id="visits-${game.id}">${Number(game.visits).toLocaleString()}</span></div>
                         </div>
-                    `;
-                });
+                    </div>
 
-                document.getElementById('headPopular').style.display = counts["Popular"] > 0 ? 'flex' : 'none';
-                document.getElementById('headUnpopular').style.display = counts["Unpopular"] > 0 ? 'flex' : 'none';
-                document.getElementById('headButBad').style.display = counts["But Bad"] > 0 ? 'flex' : 'none';
+                    <div class="stat-row">
+                        <span class="stat-label">Active Players</span>
+                        <span class="stat-value active-now" id="active-${game.id}">${Number(game.activePlayers).toLocaleString()}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Total Visits</span>
+                        <span class="stat-value" id="visits-${game.id}">${Number(game.visits).toLocaleString()}</span>
+                    </div>
+                </div>
+            `;
+        });
 
-            } catch (err) { }
-        }
+        document.getElementById('headPopular').style.display = counts["Popular"] > 0 ? 'flex' : 'none';
+        document.getElementById('headUnpopular').style.display = counts["Unpopular"] > 0 ? 'flex' : 'none';
+        document.getElementById('headButBad').style.display = counts["But Bad"] > 0 ? 'flex' : 'none';
 
+    } catch (err) { console.error("Dashboard render failed:", err); }
+}
         function openGameModal(index) {
             const game = globalGamesStorage[index];
             if(!game) return;
