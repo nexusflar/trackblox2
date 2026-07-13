@@ -33,19 +33,17 @@ app.get("/admin-login", (req, res) => {
     res.sendFile(path.resolve(process.cwd(), "admin.html"));
 });
 
-// --- ADMIN ENDPOINTS ---
+// --- ADMIN SYSTEM PORTS ---
 app.post("/api/admin/login", (req, res) => {
     const { username, password } = req.body;
     
-    console.log("RAW ENV VALUE:", process.env.ADMIN_ACCOUNTS);
-
     let adminAccounts = [];
     try {
         if (process.env.ADMIN_ACCOUNTS) {
             adminAccounts = JSON.parse(process.env.ADMIN_ACCOUNTS);
         }
     } catch (err) {
-        return res.status(500).json({ error: `JSON Parse Failed: ${err.message}`, rawReceived: process.env.ADMIN_ACCOUNTS });
+        return res.status(500).json({ error: `JSON Parse Failed: ${err.message}` });
     }
 
     const matchedAccount = adminAccounts.find(
@@ -57,7 +55,7 @@ app.post("/api/admin/login", (req, res) => {
         ACTIVE_TOKENS.add(secureToken);
         return res.json({ success: true, token: secureToken });
     }
-    res.status(401).json({ error: "Invalid credentials", fallbackActive: adminAccounts.length === 0 });
+    res.status(401).json({ error: "Invalid credentials" });
 });
 
 app.get("/api/admin/list-ids", requireAdminAuth, (req, res) => {
@@ -168,7 +166,6 @@ app.post("/api/request-game", async (req, res) => {
     let { gameId } = req.body;
     if (!gameId) return res.status(400).json({ error: "Game ID or URL required." });
 
-    // Extract raw numbers if a player pastes a full Roblox link
     const urlMatch = gameId.match(/games\/(\d+)/);
     if (urlMatch) {
         gameId = urlMatch[1];
