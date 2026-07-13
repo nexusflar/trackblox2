@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doors Fangame Tracker</title>
+    <style>
+        * { box-sizing: border-box; transition: background-color 0.2s ease, border-color 0.2s ease; }
+        body {
+            background-color: #050505;
+            color: #ffffff;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .nav-pill {
+            background: rgba(20, 20, 20, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 50px;
+            padding: 6px;
+            display: flex;
+            gap: 5px;
+            margin-bottom: 25px;
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+        .nav-item {
+            padding: 10px 32px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            color: #777;
+        }
+        .nav-item:hover { color: #bbb; }
+        .nav-item.active {
+            background: #ffffff;
+            color: #000000;
+            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25);
+        }
+
+        .dashboard-container {
+            background: #0d0d0d;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 28px;
+            width: 100%;
+            max-width: 1000px;
+            height: calc(100vh - 140px);
+            padding: 40px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        h1 { font-size: 32px; font-weight: 700; margin: 0; letter-spacing: -0.5px; }
+        .subtitle { color: #555; font-size: 13px; margin-bottom: 30px; text-transform: uppercase; letter-spacing: 1.5px; }
+
+        .view-panel { display: none; flex-direction: column; flex-grow: 1; height: 100%; overflow: hidden; }
+        .view-panel.active-panel { display: flex; animation: panelFade 0.3s ease forwards; }
+
+        @keyframes panelFade {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 120px; left: 0; right: 0; bottom: 0;
+            background: #0d0d0d;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 5;
+            border-radius: 28px;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .loading-overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+        .spinner {
+            width: 40px; height: 40px; border: 3px solid rgba(255, 255, 255, 0.05);
+            border-top-color: #ffffff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 15px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 12px; color: #444; text-transform: uppercase; letter-spacing: 2px; font-weight: bold; }
+
+        .scroller-zone { overflow-y: auto; flex-grow: 1; padding-right: 10px; }
+        .scroller-zone::-webkit-scrollbar, .modal-scroll-body::-webkit-scrollbar { width: 5px; }
+        .scroller-zone::-webkit-scrollbar-thumb, .modal-scroll-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+
+        .category-heading {
+            text-align: left; font-size: 14px; font-weight: 800; letter-spacing: 2px;
+            text-transform: uppercase; color: #555; margin: 25px 0 15px 0;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .category-heading::after { content: ''; flex-grow: 1; height: 1px; background: rgba(255,255,255,0.03); }
+
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .game-card {
+            background: #111111; border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 20px;
+            padding: 24px; text-align: left; cursor: pointer; position: relative; overflow: hidden;
+            z-index: 1; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.25s ease;
+        }
+        .game-card:hover { transform: scale(1.03); border-color: rgba(255, 255, 255, 0.12); }
+        .card-blur-bg {
+            position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+            background-size: cover; background-position: center; filter: blur(40px) brightness(0.2);
+            opacity: 0.6; z-index: -1; transition: opacity 0.3s ease;
+        }
+        .game-card:hover .card-blur-bg { opacity: 0.8; }
+        
+        .game-title { font-size: 18px; font-weight: 600; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .game-creator { font-size: 12px; color: #444; margin: 4px 0 20px 0; }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+        .stat-label { color: #888; }
+        .stat-value { font-weight: 600; }
+        .stat-value.active-now { color: #00ff66; text-shadow: 0 0 10px rgba(0,255,102,0.2); }
+
+        .request-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; }
+        .input-glow {
+            background: #141414; border: 1px solid rgba(255, 255, 255, 0.06); padding: 14px 20px;
+            border-radius: 14px; color: white; width: 100%; max-width: 400px; font-size: 14px; margin-bottom: 20px; 
+            outline: none; text-align: center; transition: all 0.25s ease;
+        }
+        .input-glow:focus { border-color: rgba(255,255,255,0.2); background: #1a1a1a; box-shadow: 0 0 20px rgba(255,255,255,0.03); }
+        
+        .btn-action {
+            background: #ffffff; color: #000000; border: none; padding: 14px 40px; border-radius: 14px;
+            font-weight: 600; cursor: pointer; width: 100%; max-width: 400px; font-size: 14px; 
+            transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        .btn-action:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255,255,255,0.15); }
+        .btn-action:active:not(:disabled) { transform: translateY(0); }
+        .btn-action:disabled { background: #222; color: #555; cursor: not-allowed; }
+
+        .blur-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            z-index: 100; display: none; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        .modal-box {
+            background: #090909; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px;
+            width: 90%; max-width: 650px; max-height: 85vh; padding: 35px; position: relative;
+            display: flex; flex-direction: column; transform: scale(0.92) translateY(10px);
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .blur-overlay.active-modal { opacity: 1; }
+        .blur-overlay.active-modal .modal-box { transform: scale(1) translateY(0); }
+        
+        .close-btn { position: absolute; top: 20px; right: 25px; font-size: 24px; color: #555; cursor: pointer; transition: color 0.2s; }
+        .close-btn:hover { color: #fff; }
+        .modal-scroll-body { overflow-y: auto; flex-grow: 1; text-align: left; padding-right: 5px; }
+
+        .carousel-viewport {
+            width: 100%; height: 280px; background: #111; border-radius: 16px; margin-bottom: 25px;
+            position: relative; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .carousel-track { display: flex; height: 100%; width: 100%; transition: transform .7s cubic-bezier(.22,1,.36,1); }
+        .carousel-slide { width: 100%; height: 100%; flex: 0 0 100%; object-fit: cover; }
+
+        .desc-text { color: #999; font-size: 14px; line-height: 1.6; margin-bottom: 25px; background: #121212; padding: 18px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.02); }
+        .analytics-title { font-size: 12px; font-weight: 700; text-transform: uppercase; color: #444; letter-spacing: 1.5px; margin: 25px 0 15px 0; }
+        
+        .graph-track { width: 100%; height: 5px; background: #141414; border-radius: 10px; margin: 8px 0 20px 0; overflow: hidden; }
+        .graph-fill { height: 100%; width: 0%; background: #ffffff; transition: width 1.2s cubic-bezier(0.25, 1, 0.5, 1); }
+
+        .svg-curve-container {
+            width: 100%; height: 180px; background: #111; border-radius: 14px; padding: 15px;
+            margin-bottom: 20px; position: relative; border: 1px solid rgba(255,255,255,0.03);
+        }
+        .grid-line { stroke: rgba(255,255,255,0.03); stroke-width: 1; stroke-dasharray: 4,4; }
+        .curve-line { fill: none; stroke: #ffffff; stroke-width: 2.5; opacity: 0.8; }
+        .curve-line.total-players-curve { stroke: #00ff66; }
+        .curve-dot { fill: #ffffff; stroke: #090909; stroke-width: 2.5; }
+        .curve-dot.total-players-dot { fill: #00ff66; }
+        .curve-text { fill: #666; font-size: 10px; font-weight: 600; text-anchor: middle; }
+        .graph-label { position: absolute; font-size: 10px; color: #444; font-weight: bold; }
+
+        .custom-alert {
+            position: fixed; bottom: -100px; left: 50%; transform: translateX(-50%);
+            background: #b30000; color: white; padding: 16px 30px; border-radius: 12px;
+            font-weight: 600; font-size: 14px; box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            z-index: 1000; transition: bottom 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .custom-alert.alert-show { bottom: 30px; }
+        .custom-alert.alert-success { background: #1b4332; border: 1px solid #75e0a4; color: #75e0a4; }
+
+        footer { margin-top: auto; padding-top: 20px; color: #333333; font-size: 10px; font-weight: 700; letter-spacing: 2px; }
+    </style>
+</head>
+<body>
+
+    <div class="nav-pill">
+        <div class="nav-item active" id="tabHome" onclick="switchView('home')">Home</div>
+        <div class="nav-item" id="tabRequest" onclick="switchView('request')">Request</div>
+    </div>
+
+    <div class="dashboard-container">
+        <div class="loading-overlay" id="loadingView">
+            <div class="spinner"></div>
+            <div class="loading-text">Fetching Database...</div>
+        </div>
+
+        <h1>Doors Game Tracker</h1>
+        <div class="subtitle">Real-time Entity & Fangame Analytics</div>
+
+        <div id="panelHome" class="view-panel active-panel">
+            <div class="scroller-zone" id="categoriesScroller">
+                <div class="category-heading" id="headPopular" style="display:none;">Popular Tiers</div>
+                <div class="games-grid" id="gridPopular"></div>
+
+                <div class="category-heading" id="headUnpopular" style="display:none;">Unpopular Tiers</div>
+                <div class="games-grid" id="gridUnpopular"></div>
+
+                <div class="category-heading" id="headButBad" style="display:none;">But Bad Editions</div>
+                <div class="games-grid" id="gridButBad"></div>
+            </div>
+        </div>
+
+        <div id="panelRequest" class="view-panel">
+            <div class="request-wrapper">
+                <form id="webhookForm" style="width: 100%;">
+                    <input type="text" id="gameInput" class="input-glow" placeholder="Enter Roblox Place ID or Link..." required><br>
+                    <button type="submit" id="submitBtn" class="btn-action">SUBMIT TO DATABASE</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="blur-overlay" id="blurModal" onclick="closeModalWindow()">
+        <div class="modal-box" onclick="event.stopPropagation()">
+            <span class="close-btn" onclick="closeModalWindow()">&times;</span>
+            <div class="modal-scroll-body">
+                <div class="carousel-viewport" id="carouselBox"></div>
+                <h2 id="mTitle" style="margin: 0; font-size: 24px;">Game Info</h2>
+                <div id="mCreator" style="font-size: 13px; color: #444; margin-bottom: 20px; font-weight: 600;">by Author</div>
+                
+                <div class="desc-text" id="mDesc">Loading details...</div>
+                
+                <div class="analytics-title">7-Day Active Player Trend</div>
+                <div class="svg-curve-container">
+                    <svg width="100%" height="100%" viewBox="0 0 500 130" preserveAspectRatio="none" id="graphSvg">
+                        <line x1="0" y1="25" x2="500" y2="25" class="grid-line" />
+                        <line x1="0" y1="65" x2="500" y2="65" class="grid-line" />
+                        <line x1="0" y1="105" x2="500" y2="105" class="grid-line" />
+                        <path class="curve-line" id="curvePath" d="M 0 65" />
+                        <g id="dynamicNodesGroup"></g>
+                    </svg>
+                    <div class="graph-label" style="left: 2%; bottom: 4px;">Day 1</div>
+                    <div class="graph-label" style="left: 32%; bottom: 4px;">Day 4</div>
+                    <div class="graph-label" style="left: 64%; bottom: 4px;">Day 5</div>
+                    <div class="graph-label" style="left: 93%; bottom: 4px;">Now</div>
+                </div>
+
+                <div class="analytics-title">7-Day Total Visits Growth</div>
+                <div class="svg-curve-container">
+                    <svg width="100%" height="100%" viewBox="0 0 500 130" preserveAspectRatio="none" id="visitsGraphSvg">
+                        <line x1="0" y1="25" x2="500" y2="25" class="grid-line" />
+                        <line x1="0" y1="65" x2="500" y2="65" class="grid-line" />
+                        <line x1="0" y1="105" x2="500" y2="105" class="grid-line" />
+                        <path class="curve-line total-players-curve" id="visitsCurvePath" d="M 0 65" />
+                        <g id="visitsDynamicNodesGroup"></g>
+                    </svg>
+                    <div class="graph-label" style="left: 2%; bottom: 4px;">Day 1</div>
+                    <div class="graph-label" style="left: 32%; bottom: 4px;">Day 4</div>
+                    <div class="graph-label" style="left: 64%; bottom: 4px;">Day 5</div>
+                    <div class="graph-label" style="left: 93%; bottom: 4px;">Now</div>
+                </div>
+
+                <div class="analytics-title">Diagnostic Distribution Stats</div>
+                <div class="stat-row"><span>Approval Rating</span><span id="pApproval" style="font-weight:700;">0%</span></div>
+                <div class="graph-track"><div class="graph-fill" id="barApproval"></div></div>
+
+                <div class="stat-row"><span>Active Servers</span><span id="pLoad" style="font-weight:700;">0%</span></div>
+                <div class="graph-track"><div class="graph-fill" id="barLoad"></div></div>
+
+                <div class="stat-row"><span>Player Retention</span><span id="pRetention" style="font-weight:700;">0%</span></div>
+                <div class="graph-track"><div class="graph-fill" id="barRetention"></div></div>
+
+                <div class="stat-row"><span>Trending Pace</span><span id="pTrend" style="font-weight:700;">0%</span></div>
+                <div class="graph-track"><div class="graph-fill" id="barTrend"></div></div>
+
+                <div class="stat-row"><span>Estimated Earnings</span><span id="pRevenue" style="font-weight:700;">0%</span></div>
+                <div class="graph-track"><div class="graph-fill" id="barRevenue"></div></div>
+
+                <div class="stat-row"><span>Server Stability</span><span id="pStability" style="font-weight:700;">0%</span></div>
+                <div class="graph-track"><div class="graph-fill" id="barStability"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="custom-alert" id="customAlert">Alert Message</div>
+
+    <footer>ALL RIGHTS RESERVED • AUTO-REFRESHING EVERY 30 SECONDS</footer>
+
+    <script>
+        let globalGamesStorage = [];
+        let slideIntervalId = null;
+        let isModalCurrentlyActive = false;
+
+        function getDynamicColor(percentage) {
+            const hue = (percentage / 100) * 120;
+            return `hsl(${hue}, 90%, 45%)`;
+        }
+
+        function showAlert(message, isSuccess = false) {
+            const alertBox = document.getElementById('customAlert');
+            alertBox.innerText = message;
+            if (isSuccess) alertBox.classList.add('alert-success');
+            else alertBox.classList.remove('alert-success');
+            alertBox.classList.add('alert-show');
+            setTimeout(() => { alertBox.classList.remove('alert-show'); }, 4000);
+        }
+
+        function switchView(target) {
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.view-panel').forEach(el => el.classList.remove('active-panel'));
+            if (target === 'home') {
+                document.getElementById('tabHome').classList.add('active');
+                document.getElementById('panelHome').classList.add('active-panel');
+                document.getElementById('loadingView').style.top = '120px';
+            } else {
+                document.getElementById('tabRequest').classList.add('active');
+                document.getElementById('panelRequest').classList.add('active-panel');
+                document.getElementById('loadingView').style.top = '10000px';
+            }
+        }
+
+        async function initOrUpdateDashboard() {
+            try {
+                const res = await fetch('/api/games');
+                const games = await res.json();
+                globalGamesStorage = games;
+                
+                document.getElementById('loadingView').classList.add('hidden');
+                if (isModalCurrentlyActive) return;
+
+                const grids = {
+                    "Popular": document.getElementById('gridPopular'),
+                    "Unpopular": document.getElementById('gridUnpopular'),
+                    "But Bad": document.getElementById('gridButBad')
+                };
+
+                // Clear previous grids
+                Object.values(grids).forEach(g => g.innerHTML = '');
+                const counts = { "Popular": 0, "Unpopular": 0, "But Bad": 0 };
+
+                games.forEach((game, idx) => {
+                    const targetGrid = grids[game.category] || grids["Popular"];
+                    counts[game.category]++;
+                    
+                    targetGrid.innerHTML += `
+                        <div class="game-card" id="card-${game.id}" onclick="openGameModal(${idx})">
+                            <div class="card-blur-bg" style="background-image: url('${game.thumbnails ? game.thumbnails[0] : game.icon}')"></div>
+                            <h3 class="game-title">${game.name}</h3>
+                            <div class="game-creator">by ${game.creator}</div>
+                            <div class="stat-row"><span class="stat-label">Active Players</span><span class="stat-value active-now" id="active-${game.id}">${Number(game.activePlayers).toLocaleString()}</span></div>
+                            <div class="stat-row"><span class="stat-label">Total Visits</span><span class="stat-value" id="visits-${game.id}">${Number(game.visits).toLocaleString()}</span></div>
+                        </div>
+                    `;
+                });
+
+                // Toggle visibility based on content availability
+                document.getElementById('headPopular').style.display = counts["Popular"] > 0 ? 'flex' : 'none';
+                document.getElementById('headUnpopular').style.display = counts["Unpopular"] > 0 ? 'flex' : 'none';
+                document.getElementById('headButBad').style.display = counts["But Bad"] > 0 ? 'flex' : 'none';
+
+            } catch (err) { }
+        }
+
+        function openGameModal(index) {
+            const game = globalGamesStorage[index];
+            if(!game) return;
+
+            isModalCurrentlyActive = true;
+            const modal = document.getElementById('blurModal');
+            modal.style.display = 'flex';
+            setTimeout(() => modal.classList.add('active-modal'), 10);
+
+            document.getElementById('mTitle').innerText = game.name;
+            document.getElementById('mCreator').innerText = `by ${game.creator}`;
+            document.getElementById('mDesc').innerText = game.description || "No description provided.";
+
+            const approval = Math.round((game.upVotes / (game.upVotes + game.downVotes || 1)) * 100);
+            const loadFactor = Math.min(Math.round((game.activePlayers / 30000) * 100), 100);
+            const retention = Math.min(Math.round((game.visits / 10000000) % 35 + 60), 98); 
+            const trending = Math.min(Math.round((game.activePlayers / 500) % 40 + 55), 100);
+            const revenue = Math.min(Math.round((game.visits / 500000) % 30 + 65), 99);
+            const stability = Math.min(Math.round(92 + (Math.random() * 8)), 100);
+
+            const elements = ['Approval', 'Load', 'Retention', 'Trend', 'Revenue', 'Stability'];
+            const values = [approval, loadFactor, retention, trending, revenue, stability];
+
+            elements.forEach((el, i) => {
+                const txtNode = document.getElementById(`p${el}`);
+                const barNode = document.getElementById(`bar${el}`);
+                txtNode.innerText = `${values[i]}%`;
+                txtNode.style.color = getDynamicColor(values[i]);
+                if (barNode) {
+                    barNode.style.width = `${values[i]}%`;
+                    barNode.style.backgroundColor = getDynamicColor(values[i]);
+                }
+            });
+
+            if (game.history && game.history.length > 0) {
+                const maxVal = Math.max(...game.history, 1);
+                const pointsArray = [];
+                const points = game.history.map((val, i) => {
+                    const x = (i / (game.history.length - 1)) * 430 + 35; 
+                    const y = 105 - ((val / maxVal) * 75); 
+                    pointsArray.push({ x, y, value: val });
+                    return `${x},${y}`;
+                });
+                document.getElementById('curvePath').setAttribute('d', `M ${points.join(' L ')}`);
+                const nodesGroup = document.getElementById('dynamicNodesGroup');
+                nodesGroup.innerHTML = '';
+                pointsArray.forEach(pt => {
+                    const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    txt.setAttribute("x", pt.x); txt.setAttribute("y", pt.y - 10);
+                    txt.setAttribute("class", "curve-text"); txt.textContent = Number(pt.value).toLocaleString();
+                    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circle.setAttribute("cx", pt.x); circle.setAttribute("cy", pt.y); circle.setAttribute("r", "4");
+                    circle.setAttribute("class", "curve-dot");
+                    nodesGroup.appendChild(txt); nodesGroup.appendChild(circle);
+                });
+            }
+
+            if (game.history && game.history.length > 0) {
+                const totalBaseVal = game.visits;
+                const totalHistory = game.history.map((h, idx) => Math.round(totalBaseVal - ((game.history.length - 1 - idx) * (h * 1.2))));
+                const maxTotalVal = Math.max(...totalHistory, 1);
+                const totalPointsArray = [];
+                const totalPoints = totalHistory.map((val, i) => {
+                    const x = (i / (totalHistory.length - 1)) * 430 + 35; 
+                    const y = 105 - ((val / maxTotalVal) * 75); 
+                    totalPointsArray.push({ x, y, value: val });
+                    return `${x},${y}`;
+                });
+                document.getElementById('visitsCurvePath').setAttribute('d', `M ${totalPoints.join(' L ')}`);
+                const visitsNodesGroup = document.getElementById('visitsDynamicNodesGroup');
+                visitsNodesGroup.innerHTML = '';
+                totalPointsArray.forEach(pt => {
+                    const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    txt.setAttribute("x", pt.x); txt.setAttribute("y", pt.y - 10);
+                    txt.setAttribute("class", "curve-text"); txt.textContent = Number(pt.value).toLocaleString();
+                    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circle.setAttribute("cx", pt.x); circle.setAttribute("cy", pt.y); circle.setAttribute("r", "4");
+                    circle.setAttribute("class", "curve-dot total-players-dot");
+                    visitsNodesGroup.appendChild(txt); visitsNodesGroup.appendChild(circle);
+                });
+            }
+
+            const cBox = document.getElementById('carouselBox');
+            cBox.innerHTML = '';
+            clearInterval(slideIntervalId);
+            let images = (game.thumbnails && game.thumbnails.length) ? game.thumbnails : [game.icon];
+            const track = document.createElement('div');
+            track.className = 'carousel-track';
+            const slides = images.length > 1 ? [images[images.length - 1], ...images, images[0]] : images;
+            slides.forEach(u => {
+                if(u) {
+                    const i = document.createElement('img');
+                    i.className = 'carousel-slide'; i.src = u;
+                    track.appendChild(i);
+                }
+            });
+            cBox.appendChild(track);
+            let current = images.length > 1 ? 1 : 0;
+            track.style.transform = `translateX(-${current * 100}%)`;
+            
+            if (images.length > 1) {
+                slideIntervalId = setInterval(() => {
+                    current++;
+                    track.style.transition = 'transform .7s cubic-bezier(.22,1,.36,1)';
+                    track.style.transform = `translateX(-${current * 100}%)`;
+                }, 4000);
+                track.addEventListener('transitionend', () => {
+                    if (current === slides.length - 1) {
+                        track.style.transition = 'none';
+                        current = 1;
+                        track.style.transform = 'translateX(-100%)';
+                    }
+                });
+            }
+        }
+
+        function closeModalWindow() {
+            const modal = document.getElementById('blurModal');
+            modal.classList.remove('active-modal');
+            
+            const elements = ['Approval', 'Load', 'Retention', 'Trend', 'Revenue', 'Stability'];
+            elements.forEach(el => {
+                document.getElementById(`bar${el}`).style.width = `0%`;
+            });
+
+            clearInterval(slideIntervalId);
+            setTimeout(() => {
+                modal.style.display = 'none';
+                isModalCurrentlyActive = false;
+                initOrUpdateDashboard();
+            }, 300);
+        }
+
+        document.getElementById('webhookForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const input = document.getElementById('gameInput').value.trim();
+
+            const numericExtraction = input.match(/\d+/);
+            if (!numericExtraction) {
+                showAlert("Error: Please enter a valid Roblox Game ID number or link!");
+                return;
+            }
+
+            const cleanVerifiedId = numericExtraction[0];
+            btn.disabled = true;
+            btn.innerText = "Sending...";
+
+            try {
+                await fetch('/api/request-game', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ gameId: cleanVerifiedId })
+                });
+                
+                showAlert("Success: Game request submitted successfully!", true);
+                
+                let cooldownTimer = 10;
+                const interval = setInterval(() => {
+                    btn.innerText = `Wait (${cooldownTimer}s)`;
+                    cooldownTimer--;
+                    if(cooldownTimer < 0) {
+                        clearInterval(interval);
+                        btn.disabled = false;
+                        btn.innerText = "SUBMIT TO DATABASE";
+                    }
+                }, 1000);
+
+                document.getElementById('gameInput').value = "";
+            } catch {
+                btn.disabled = false;
+                btn.innerText = "SUBMIT TO DATABASE";
+                showAlert("Error: Failed to submit to server.");
+            }
+        });
+
+        initOrUpdateDashboard();
+        setInterval(initOrUpdateDashboard, 30000);
+    </script>
+</body>
+</html>
