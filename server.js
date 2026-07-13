@@ -4,38 +4,24 @@ const cors = require("cors");
 const path = require("path");
 const crypto = require("crypto");
 
-// Load .env variables
+// Automatically read local configurations from your .env file
 require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Pull the Webhook link dynamically from environment setups
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
-// Changed to 'let' so the admin panel can temporarily modify them in memory
+// Hardcoded initial list structures (Memory arrays optimized for serverless instances)
 let TRACKED_PLACE_IDS = [6516141723, 18186775539, 14782959537, 121776770216184, 74410589950588, 139814426336895, 106488404064306, 95959136210771, 112773882744514, 89944607133829, 14232592026, 84323123259073, 87529023558870, 84643998589421];
 let BUT_BAD_PLACE_IDS = [10704934612, 11648546848, 102512968717570, 10966157497];
 
-// Simple secure token tracking for your session
+// Storage tracking for valid active login tokens
 const ACTIVE_TOKENS = new Set();
 
-// Password helper functions (No file saving, completely secure in-memory)
-function hashPassword(password) {
-    const salt = crypto.randomBytes(16).toString("hex");
-    const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-    return `${salt}:${hash}`;
-}
-function verifyPassword(password, storedFormat) {
-    const [salt, originalHash] = storedFormat.split(":");
-    const currentHash = crypto.scryptSync(password, salt, 64).toString("hex");
-    return crypto.timingSafeEqual(Buffer.from(originalHash, "hex"), Buffer.from(currentHash, "hex"));
-}
-
-// Your default admin password hash (password is: password123)
-const adminPasswordHash = hashPassword("password123");
-
-// Middleware to block non-admins
+// Authorization middleware to block unauthorized requests on internal routes
 const requireAdminAuth = (req, res, next) => {
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
@@ -43,25 +29,46 @@ const requireAdminAuth = (req, res, next) => {
     res.status(403).json({ error: "Access Denied" });
 };
 
-// --- PAGES ROUTING ---
+// --- FRONTEND ROUTING PATHWAYS ---
 
-// Main dashboard
+// Route to serve your main interface dashboard
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// 🔑 FIXED: Re-added the Admin Login page route!
+// Route to open the secure administrator portal page
 app.get("/admin-login", (req, res) => {
     res.sendFile(path.join(__dirname, "admin.html"));
 });
 
 
-// --- ADMIN API ENDPOINTS ---
+// --- ADMIN MANIPULATION PORT ENDPOINTS ---
 
-// Check credentials and issue a session token
+// Check credentials securely against a list of multiple admin accounts
 app.post("/api/admin/login", (req, res) => {
     const { username, password } = req.body;
-    if (username === "admin" && verifyPassword(password, adminPasswordHash)) {
+    
+    let adminAccounts = [];
+    try {
+        // Safe conversion of the environment string into a structural code array
+        if (process.env.ADMIN_ACCOUNTS) {
+            adminAccounts = JSON.parse(process.env.ADMIN_ACCOUNTS);
+        }
+    } catch (err) {
+        console.error("System Error reading ADMIN_ACCOUNTS variable layout:", err.message);
+    }
+
+    // Fallback account logic if the environment array configuration comes back empty
+    if (!adminAccounts || adminAccounts.length === 0) {
+        adminAccounts = [{ username: "admin", password: "password123" }];
+    }
+
+    // Look for a match across all allowed accounts configured inside your environment
+    const matchedAccount = adminAccounts.find(
+        account => account.username === username && account.password === password
+    );
+
+    if (matchedAccount) {
         const secureToken = "tkn_" + crypto.randomBytes(32).toString("hex");
         ACTIVE_TOKENS.add(secureToken);
         return res.json({ success: true, token: secureToken });
@@ -69,16 +76,16 @@ app.post("/api/admin/login", (req, res) => {
     res.status(401).json({ error: "Invalid credentials" });
 });
 
-// List IDs inside the admin panel
+// Sends current place array data back to the admin control desk
 app.get("/api/admin/list-ids", requireAdminAuth, (req, res) => {
     res.json({ popular: TRACKED_PLACE_IDS, butBad: BUT_BAD_PLACE_IDS });
 });
 
-// Add a game ID (Temporary in-memory layout for Vercel)
+// Insert new IDs directly into application tracking memory
 app.post("/api/admin/add-id", requireAdminAuth, (req, res) => {
     const { gameId, category } = req.body;
     const numericId = parseInt(gameId, 10);
-    if (isNaN(numericId)) return res.status(400).json({ error: "Invalid ID" });
+    if (isNaN(numericId)) return res.status(400).json({ error: "Invalid ID format" });
 
     if (category === "butBad") {
         if (!BUT_BAD_PLACE_IDS.includes(numericId)) BUT_BAD_PLACE_IDS.push(numericId);
@@ -88,7 +95,7 @@ app.post("/api/admin/add-id", requireAdminAuth, (req, res) => {
     res.json({ success: true });
 });
 
-// Delete a game ID
+// Wipe targeted Place ID targets out of tracking engine memory
 app.post("/api/admin/delete-id", requireAdminAuth, (req, res) => {
     const { gameId } = req.body;
     const numericId = parseInt(gameId, 10);
@@ -98,9 +105,8 @@ app.post("/api/admin/delete-id", requireAdminAuth, (req, res) => {
 });
 
 
-// --- PUBLIC API ENDPOINTS ---
+// --- ENGINE COMPILATION CORE (ROBLOX FETCHING) ---
 
-// Main tracker API
 app.get("/api/games", async (req, res) => {
     try {
         const allIds = [...TRACKED_PLACE_IDS, ...BUT_BAD_PLACE_IDS];
@@ -114,7 +120,7 @@ app.get("/api/games", async (req, res) => {
                     universeMappings[response.data.universeId] = id;
                     return response.data.universeId;
                 }
-            } catch (err) { }
+            } catch (err) { /* Silently bypass individual lookup anomalies */ }
             return null;
         });
 
@@ -174,16 +180,17 @@ app.get("/api/games", async (req, res) => {
 
         res.json(compiledGames);
     } catch (err) {
-        res.status(500).json({ error: "Failed to process Roblox data." });
+        res.status(500).json({ error: "Failed to compile live server metrics." });
     }
 });
 
-// Discord Request Route
+// Outward facing forward integration to push new request IDs to Discord
 app.post("/api/request-game", async (req, res) => {
     const { gameId } = req.body;
     if (!gameId) return res.status(400).json({ error: "Game ID required." });
     try {
-        if (!DISCORD_WEBHOOK_URL) return res.status(500).json({ error: "Webhook unconfigured." });
+        if (!DISCORD_WEBHOOK_URL) return res.status(500).json({ error: "Webhook transmission line down." });
+        
         await axios.post(DISCORD_WEBHOOK_URL, {
             embeds: [{
                 title: "🚪 New Game Request",
@@ -193,8 +200,15 @@ app.post("/api/request-game", async (req, res) => {
         });
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: "Could not send alert." });
+        res.status(500).json({ error: "Failed to pipe data to remote channel." });
     }
 });
 
+// Fallback configuration enabling errorless native testing offline
+if (process.env.NODE_ENV !== 'production') {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`🚀 Server running locally on port ${PORT}`));
+}
+
+// Map the core Express application container setup over to the Vercel builder pipeline
 module.exports = app;
