@@ -101,7 +101,7 @@
     z-index: 1;
 }
 
-/* The overlay outline structure completely covering the boundaries */
+/* The overlay outline structure completely covering the boundaries with infinite rotation */
 .deco-badge {
     position: absolute;
     top: 0;
@@ -110,6 +110,26 @@
     height: 100%;
     pointer-events: none;
     z-index: 2;
+    animation: rotateDeco 8s linear infinite; /* Adjust '8s' to make it spin faster or slower */
+}
+
+/* Specific Tints using high-fidelity drop-shadow glows matching the categories */
+.badge-popular {
+    filter: drop-shadow(0 0 4px rgba(255, 215, 0, 0.6)) hue-rotate(0deg); /* Golden Glow */
+}
+
+.badge-unpopular {
+    filter: drop-shadow(0 0 5px rgba(138, 43, 226, 0.7)) hue-rotate(140deg); /* Deep Cosmic Purple/Cyan Morph */
+}
+
+/* CSS Keyframe definition for seamless 360-degree rotation */
+@keyframes rotateDeco {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Text layout alignment */
@@ -448,17 +468,17 @@
         Object.values(grids).forEach(g => g.innerHTML = '');
         const counts = { "Popular": 0, "Unpopular": 0, "But Bad": 0 };
 
-        games.forEach((game, idx) => {
+       games.forEach((game, idx) => {
     const targetGrid = grids[game.category] || grids["Popular"];
     counts[game.category]++;
     
-    // Determine dynamic badge layouts based on status mapping
+    // Determine dynamic badge layouts and matching rotation tints
     let decoHtml = '';
     if (game.category === "Popular") {
-        decoHtml = `<img class="deco-badge" src="https://i.ibb.co/0pRRm2YK/Badge-Outline-Full-1.webp" alt="Popular Deco">`;
+        decoHtml = `<img class="deco-badge badge-popular" src="https://i.ibb.co/0pRRm2YK/Badge-Outline-Full-1.webp" alt="Popular Deco">`;
     } else if (game.category === "Unpopular") {
-        decoHtml = `<img class="deco-badge" src="https://i.ibb.co/gZxkK6sY/Badge-Outline-Secret-V2.webp" alt="Unpopular Deco">`;
-    }
+        decoHtml = `<img class="deco-badge badge-unpopular" src="https://i.ibb.co/gZxkK6sY/Badge-Outline-Secret-V2.webp" alt="Unpopular Deco">`;
+    } // 'But Bad' continues to evaluate with no decorators cleanly
 
     targetGrid.innerHTML += `
         <div class="game-card" id="card-${game.id}" onclick="openGameModal(${idx})">
