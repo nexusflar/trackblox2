@@ -165,6 +165,9 @@
         .confirm-title { font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .confirm-author { font-size: 12px; color: #aaa; margin-top: 2px; }
         .confirm-id { font-family: monospace; font-size: 11px; color: #666; margin-top: 5px; }
+        .confirm-url { font-size: 11px; color: #00ff66; margin-top: 4px; display: block; word-break: break-all; text-decoration: none; }
+        .confirm-url:hover { text-decoration: underline; }
+        
         .btn-final-send {
             position: relative; z-index: 2; width: 100%; background: #00ff66; color: #000; 
             border: none; padding: 12px; font-weight: 700; border-radius: 10px; cursor: pointer; 
@@ -273,6 +276,7 @@
                             <div class="confirm-title" id="confirmTitle">Loading Game...</div>
                             <div class="confirm-author" id="confirmAuthor">by Unknown</div>
                             <div class="confirm-id" id="confirmId">ID: 00000</div>
+                            <a class="confirm-url" id="confirmUrl" href="#" target="_blank">roblox.com/games/00000</a>
                         </div>
                     </div>
                     <button type="button" id="finalSendBtn" class="btn-final-send" onclick="submitFinalRequest()">Yes, Confirm & Send Request</button>
@@ -351,7 +355,7 @@
         let globalGamesStorage = [];
         let slideIntervalId = null;
         let isModalCurrentlyActive = false;
-        let verifiedTargetGameId = null; // Caches target ID after validation check
+        let verifiedTargetGameId = null; 
 
         function getDynamicColor(percentage) {
             const hue = (percentage / 100) * 120;
@@ -573,12 +577,19 @@
 
                 verifiedTargetGameId = data.id;
 
+                const gameUrl = `https://www.roblox.com/games/${data.id}`;
+
                 // Bind UI assets to the confirmation card
                 document.getElementById('confirmBlur').style.backgroundImage = `url('${data.thumbnail || data.icon}')`;
                 document.getElementById('confirmIcon').src = data.icon;
                 document.getElementById('confirmTitle').innerText = data.name;
                 document.getElementById('confirmAuthor').innerText = `by ${data.creator}`;
                 document.getElementById('confirmId').innerText = `ID: ${data.id}`;
+                
+                // Update URL preview element
+                const urlEl = document.getElementById('confirmUrl');
+                urlEl.innerText = gameUrl;
+                urlEl.href = gameUrl;
 
                 container.style.display = 'block';
             } catch (err) {
@@ -611,7 +622,6 @@
                 document.getElementById('confirmContainer').style.display = 'none';
                 document.getElementById('gameInput').value = "";
                 
-                // Add submission timeout cooldown
                 searchBtn.disabled = true;
                 let cooldownTimer = 10;
                 const interval = setInterval(() => {
